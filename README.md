@@ -1,6 +1,25 @@
-# BMS Kotlin
+# EVTOP BMS Kotlin
 
 Native Android Kotlin replacement for the UniApp BMS application.
+
+## Test On Your Phone
+
+### Android Studio
+
+1. Open this `bms-kotlin` folder in Android Studio.
+2. Let Gradle sync finish.
+3. Connect your Android phone with USB debugging enabled.
+4. Select your phone in Android Studio.
+5. Press Run.
+
+The app launches as `EVTOP BMS`. Mock mode is enabled by default, so you can test screens immediately. Turn mock mode off on the Device Scan tab when you are ready to connect to the real BMS.
+
+### APK Install
+
+```bash
+./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
 
 ## Features
 
