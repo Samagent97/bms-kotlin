@@ -30,10 +30,20 @@ jobs:
           gradle-version: "8.10.2"
 
       - name: Build debug APK
-        run: gradle assembleDebug
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle assembleDebug --stacktrace --warning-mode all 2>&1 | tee build-log.txt
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: EVTOP-BMS-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVTOP-BMS-build-log
+          path: build-log.txt
