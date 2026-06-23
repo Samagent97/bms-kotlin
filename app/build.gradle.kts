@@ -7,6 +7,7 @@ plugins {
 android {
     namespace = "com.battery.bms"
     compileSdk = 35
+    val releaseKeystore = System.getenv("ANDROID_KEYSTORE_FILE")
 
     defaultConfig {
         applicationId = "com.battery.bms"
@@ -29,9 +30,23 @@ android {
         jvmTarget = "17"
     }
 
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (releaseKeystore != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
