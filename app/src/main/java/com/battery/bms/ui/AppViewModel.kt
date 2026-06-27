@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class UiState(
-    val mockMode: Boolean = true,
+    val mockMode: Boolean = false,
     val devices: List<BmsDevice> = emptyList(),
     val connected: BmsDevice? = null,
     val switches: SwitchState? = null,
@@ -35,20 +35,40 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         scan()
-        refreshAll()
     }
 
     fun setMockMode(enabled: Boolean) {
         repository.mockMode = enabled
-        _state.update { it.copy(mockMode = enabled, devices = emptyList(), connected = null) }
+        repository.disconnect()
+        _state.update {
+            it.copy(
+                mockMode = enabled,
+                devices = emptyList(),
+                connected = null,
+                switches = null,
+                health = null,
+                battery = null,
+                temperatures = null,
+                message = if (enabled) "Mock mode is for screen testing only" else ""
+            )
+        }
         scan()
     }
 
     fun scan() {
+        if (!repository.mockMode && !repository.hasBlePermissions()) {
+            setMessage("Allow Nearby devices/Bluetooth permission, then scan again")
+            return
+        }
+        if (!repository.mockMode && !repository.isBluetoothEnabled()) {
+            setMessage("Turn on Bluetooth, then scan again")
+            return
+        }
+        _state.update { it.copy(message = if (repository.mockMode) it.message else "Scanning for BRT_AFE2616...") }
         repository.scan { device ->
             _state.update { state ->
                 val merged = (state.devices.filterNot { it.id == device.id } + device).sortedByDescending { it.rssi ?: -999 }
-                state.copy(devices = merged)
+                state.copy(devices = merged, message = "")
             }
         }
     }
@@ -67,6 +87,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshAll() = viewModelScope.launch {
+        if (repository.connectedDevice == null) {
+            setMessage("Connect to a BMS first")
+            return@launch
+        }
         runCatching {
             _state.update {
                 it.copy(

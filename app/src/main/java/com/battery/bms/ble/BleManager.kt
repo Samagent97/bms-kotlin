@@ -7,6 +7,7 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
+import android.bluetooth.BluetoothGatt.GATT_SUCCESS
 import android.bluetooth.BluetoothGattService
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
@@ -31,6 +32,7 @@ class BleManager(private val context: Context) {
     private var gatt: BluetoothGatt? = null
     private var writeChar: BluetoothGattCharacteristic? = null
     private var notifyChar: BluetoothGattCharacteristic? = null
+    private var scanCallback: ScanCallback? = null
     private val queue = ConcurrentLinkedQueue<Pending>()
     private var active: Pending? = null
 
@@ -48,13 +50,20 @@ class BleManager(private val context: Context) {
         return permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
     }
 
+    fun isBluetoothEnabled(): Boolean = adapter?.isEnabled == true
+
     @SuppressLint("MissingPermission")
     fun scan(onDevice: (BmsDevice) -> Unit) {
         if (!hasBlePermissions()) {
             AppLogger.push("warn", "BLE permissions are not granted")
             return
         }
-        adapter?.bluetoothLeScanner?.startScan(object : ScanCallback() {
+        if (!isBluetoothEnabled()) {
+            AppLogger.push("warn", "Bluetooth is turned off")
+            return
+        }
+        stopScan()
+        scanCallback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 val name = result.device.name ?: result.scanRecord?.deviceName ?: ""
                 val serviceMatch = result.scanRecord?.serviceUuids?.any { it.uuid.toString().uppercase().startsWith(BmsProtocol.targetServicePrefix) } == true
@@ -62,30 +71,60 @@ class BleManager(private val context: Context) {
                     onDevice(BmsDevice(result.device.address, name.ifBlank { BmsProtocol.targetName }, result.rssi))
                 }
             }
-        })
+        }
+        scanCallback?.let { adapter?.bluetoothLeScanner?.startScan(it) }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun stopScan() {
+        if (!hasBlePermissions()) return
+        scanCallback?.let { adapter?.bluetoothLeScanner?.stopScan(it) }
+        scanCallback = null
     }
 
     @SuppressLint("MissingPermission")
     suspend fun connect(deviceId: String): BmsDevice = withContext(Dispatchers.IO) {
         if (!hasBlePermissions()) error("BLE permissions are not granted")
+        if (!isBluetoothEnabled()) error("Bluetooth is turned off")
+        stopScan()
         val device = adapter?.getRemoteDevice(deviceId) ?: error("Device not found")
         val ready = CompletableDeferred<Unit>()
         gatt = device.connectGatt(context, false, object : BluetoothGattCallback() {
             override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
-                if (newState == BluetoothProfile.STATE_CONNECTED) g.discoverServices() else if (newState == BluetoothProfile.STATE_DISCONNECTED) AppLogger.push("warn", "BLE disconnected")
+                if (newState == BluetoothProfile.STATE_CONNECTED) {
+                    if (!g.discoverServices() && !ready.isCompleted) ready.completeExceptionally(IllegalStateException("Service discovery failed"))
+                } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                    AppLogger.push("warn", "BLE disconnected")
+                    if (!ready.isCompleted) ready.completeExceptionally(IllegalStateException("BLE disconnected"))
+                }
             }
 
             override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+                if (status != GATT_SUCCESS) {
+                    ready.completeExceptionally(IllegalStateException("Service discovery failed: $status"))
+                    return
+                }
                 val service = g.getService(BmsProtocol.serviceUuid) ?: pickService(g.services)
                 writeChar = service?.characteristics?.firstOrNull { it.uuid == BmsProtocol.writeCharUuid || it.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0 || it.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0 }
                 notifyChar = service?.characteristics?.firstOrNull { it.uuid == BmsProtocol.notifyCharUuid || it.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0 || it.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0 }
+                if (writeChar == null || notifyChar == null) {
+                    ready.completeExceptionally(IllegalStateException("BMS BLE service not found"))
+                    return
+                }
                 notifyChar?.let {
                     g.setCharacteristicNotification(it, true)
                     val descriptor = it.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
                     descriptor?.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                    if (descriptor != null) g.writeDescriptor(descriptor)
+                    if (descriptor != null) {
+                        if (!g.writeDescriptor(descriptor)) ready.completeExceptionally(IllegalStateException("Notification setup failed"))
+                    } else {
+                        ready.complete(Unit)
+                    }
                 }
-                ready.complete(Unit)
+            }
+
+            override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+                if (status == GATT_SUCCESS) ready.complete(Unit) else ready.completeExceptionally(IllegalStateException("Notification setup failed: $status"))
             }
 
             override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
@@ -99,9 +138,15 @@ class BleManager(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     fun disconnect() {
+        stopScan()
         gatt?.disconnect()
         gatt?.close()
         gatt = null
+        writeChar = null
+        notifyChar = null
+        active?.result?.completeExceptionally(IllegalStateException("Disconnected"))
+        active = null
+        queue.clear()
     }
 
     suspend fun send(command: ByteArray, expectedLength: Int? = null): ByteArray {

@@ -1,8 +1,10 @@
 package com.battery.bms
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -53,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -240,11 +243,13 @@ fun ScanScreen(state: UiState, vm: AppViewModel) = Screen(
     title = "Device Scan",
     subtitle = if (state.mockMode) "Mock mode is on for screen testing" else "Scanning for nearby BMS devices"
 ) {
+    val context = LocalContext.current
+
     InfoCard {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
-                SectionTitle("Connection Mode")
-                Text(if (state.mockMode) "Using sample BMS readings" else "Bluetooth scan enabled", color = Muted, fontSize = 13.sp)
+                SectionTitle("Test Data Mode")
+                Text(if (state.mockMode) "Sample data only" else "Real Bluetooth scan", color = Muted, fontSize = 13.sp)
             }
             Switch(
                 checked = state.mockMode,
@@ -254,6 +259,14 @@ fun ScanScreen(state: UiState, vm: AppViewModel) = Screen(
         }
         state.connected?.let { RowText("Connected device", it.name, Good) }
         if (state.message.isNotBlank()) Text(state.message, color = Warn, fontSize = 13.sp)
+        if (!state.mockMode) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PrimaryButton("Scan Again", onClick = vm::scan)
+                TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }) {
+                    Text("Bluetooth Settings", color = Brand, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
     }
 
     state.devices.forEach { device ->
@@ -266,6 +279,13 @@ fun ScanScreen(state: UiState, vm: AppViewModel) = Screen(
                 SoftStatus("RSSI ${device.rssi ?: "n/a"}", Brand)
             }
             PrimaryButton("Connect", onClick = { vm.connect(device) })
+        }
+    }
+
+    if (!state.mockMode && state.devices.isEmpty()) {
+        InfoCard {
+            SectionTitle("No BMS found yet")
+            Text("Power the BMS and keep it near this phone, then scan again.", color = Muted, fontSize = 13.sp)
         }
     }
 

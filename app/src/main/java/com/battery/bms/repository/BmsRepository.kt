@@ -11,9 +11,12 @@ import com.battery.bms.data.TemperatureSnapshot
 import com.battery.bms.protocol.BmsProtocol
 
 class BmsRepository(private val bleManager: BleManager) {
-    var mockMode: Boolean = true
+    var mockMode: Boolean = false
     var connectedDevice: BmsDevice? = null
         private set
+
+    fun hasBlePermissions(): Boolean = bleManager.hasBlePermissions()
+    fun isBluetoothEnabled(): Boolean = bleManager.isBluetoothEnabled()
 
     fun scan(onDevice: (BmsDevice) -> Unit) {
         if (mockMode) onDevice(MockData.device) else bleManager.scan(onDevice)
@@ -24,7 +27,7 @@ class BmsRepository(private val bleManager: BleManager) {
     }
 
     fun disconnect() {
-        if (!mockMode) bleManager.disconnect()
+        bleManager.disconnect()
         connectedDevice = null
     }
 

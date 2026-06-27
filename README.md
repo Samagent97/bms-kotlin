@@ -12,7 +12,7 @@ Native Android Kotlin replacement for the UniApp BMS application.
 4. Select your phone in Android Studio.
 5. Press Run.
 
-The app launches as `EVTOP BMS`. Mock mode is enabled by default, so you can test screens immediately. Turn mock mode off on the Device Scan tab when you are ready to connect to the real BMS.
+The app launches as `EVTOP BMS` in real Bluetooth mode. Android will ask for Bluetooth/Nearby Devices permission; allow it, keep Bluetooth turned on, then scan/connect from the Device Scan tab. The test-data switch is only for checking screens without hardware.
 
 ### APK Install
 
@@ -24,7 +24,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ## Features
 
 - Jetpack Compose UI with Device Scan, Dashboard, Cell Voltages, BMS Controls, Parameter Settings, and Logs.
-- Mock data mode enabled by default.
+- Real BLE scan mode enabled by default, with optional mock data mode for screen checks.
 - Native Android BLE scan/connect/service discovery/notification/write path.
 - CRC16/MODBUS command layer.
 - Battery, temperature, status, control, and parameter parsers.
